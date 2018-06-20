@@ -6,6 +6,7 @@ from collections import namedtuple
 
 from py_zipkin._encoding_helpers import create_endpoint
 from py_zipkin._encoding_helpers import Encoding
+from py_zipkin._encoding_helpers import create_span
 from py_zipkin.exception import ZipkinError
 from py_zipkin.logging_helper import zipkin_logger
 from py_zipkin.logging_helper import ZipkinLoggerHandler
@@ -393,28 +394,18 @@ class zipkin_span(object):
 
         self.log_handler.parent_span_id = self.old_parent_span_id
 
-        # We are simulating a full two-part span locally, so set cs=sr and ss=cr
-        full_annotations = {
-            'cs': self.start_timestamp,
-            'sr': self.start_timestamp,
-            'ss': end_timestamp,
-            'cr': end_timestamp,
-        }
-
-        # Update the the annotations if they aren't already set
-        # This prevents overwriting user-defined annotations
-        for annotation, timestamp in full_annotations.items():
-            if annotation in self.annotation_filter:
-                self.annotations.setdefault(annotation, timestamp)
-
-        self.log_handler.store_local_span(
-            span_name=self.span_name,
-            service_name=self.service_name,
+        self.log_handler.store_local_span(create_span(
+            trace_id=self.zipkin_attrs.trace_id,
+            name=self.span_name,
+            parent_id=self.old_parent_span_id,
+            span_id=None,
             annotations=self.annotations,
-            binary_annotations=self.binary_annotations,
+            tags=self.binary_annotations,
+            include=self.include,
             sa_endpoint=self.sa_endpoint,
-            span_id=self.zipkin_attrs.span_id,
-        )
+            timestamp=self.start_timestamp,
+            duration=end_timestamp - self.start_timestamp,
+        ))
 
     def update_binary_annotations(self, extra_annotations):
         """Updates the binary annotations for the current span.

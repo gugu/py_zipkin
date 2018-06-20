@@ -5,6 +5,7 @@ from collections import defaultdict
 from logging import NullHandler
 
 from py_zipkin import _encoding_helpers
+from py_zipkin._encoding_helpers import Span
 from py_zipkin.exception import ZipkinError
 from py_zipkin.transport import BaseTransportHandler
 from py_zipkin.util import generate_random_64bit_string
@@ -120,12 +121,10 @@ class ZipkinLoggingContext(object):
             for span in self.log_handler.client_spans:
                 # The parent_span_id is either the parent ID set in the
                 # logging handler or the current Zipkin context's span ID.
-                parent_span_id = (
-                    span['parent_span_id'] or
-                    self.zipkin_attrs.span_id
-                )
-                # A new client span's span ID can be overridden
-                span_id = span['span_id'] or generate_random_64bit_string()
+                # NOTE: I don't understand if this edge case is still relevant
+                if span.parent_id is None:
+                    span.parent_id = self.zipkin_attrs.span_id
+
                 endpoint = _encoding_helpers.copy_endpoint_with_new_service_name(
                     self.endpoint, span['service_name']
                 )
@@ -219,28 +218,12 @@ class ZipkinLoggerHandler(logging.StreamHandler, object):
         self.client_spans = []
         self.extra_annotations = []
 
-    def store_local_span(
-        self,
-        span_name,
-        service_name,
-        annotations,
-        binary_annotations,
-        sa_endpoint,
-        span_id=None,
-    ):
+    def store_local_span(self, span):
         """Convenience method for storing a local child span (a zipkin_span
         inside other zipkin_spans) to be logged when the outermost zipkin_span
         exits.
         """
-        self.client_spans.append({
-            'span_name': span_name,
-            'service_name': service_name,
-            'parent_span_id': self.parent_span_id,
-            'span_id': span_id,
-            'annotations': annotations,
-            'binary_annotations': binary_annotations,
-            'sa_endpoint': sa_endpoint,
-        })
+        self.client_spans.append(span)
 
     def emit(self, record):
         """Handle each record message. This function is called whenever
@@ -289,13 +272,18 @@ class ZipkinLoggerHandler(logging.StreamHandler, object):
         service_name = record.msg.get('service_name', None)
         # Presence of service_name means this is to be a new local span.
         if service_name is not None:
-            self.store_local_span(
-                span_name=span_name,
-                service_name=service_name,
+            self.store_local_span(_encoding_helpers.create_span(
+                trace_id=None,
+                name=span_name,
+                parent_id=self.parent_span_id,
+                span_id=self.zipkin_attrs.span_id,
                 annotations=annotations,
-                binary_annotations=binary_annotations,
+                tags=binary_annotations,
+                include=[],  # This is a local span
                 sa_endpoint=None,
-            )
+                timestamp=None,
+                duration=None,
+            ))
         else:
             self.extra_annotations.append({
                 'annotations': annotations,

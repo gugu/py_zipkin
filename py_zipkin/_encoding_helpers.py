@@ -4,11 +4,87 @@ from collections import namedtuple
 from enum import Enum
 
 from py_zipkin import thrift
+from py_zipkin.util import generate_random_64bit_string
 
 Endpoint = namedtuple(
     'Endpoint',
     ['service_name', 'ipv4', 'ipv6', 'port'],
 )
+
+
+class Span(object):
+    def __init__(
+        self,
+        trace_id,
+        name,
+        parent_id,
+        span_id,
+        kind,
+        timestamp,
+        duration,
+        local_endpoint,
+        remote_endpoint,
+        annotations,
+        tags,
+        debug=False,
+        shared=False,
+    ):
+        self.trace_id = trace_id
+        self.name = name
+        self.parent_id = parent_id
+        self.span_id = span_id
+        self.kind = kind
+        self.timestamp = timestamp
+        self.duration = duration
+        self.local_endpoint = local_endpoint
+        self.remote_endpoint = remote_endpoint
+        self.annotations = annotations
+        self.tags = tags
+        self.debug = debug
+        self.shared = shared
+
+
+def create_span(
+    trace_id,
+    name,
+    parent_id,
+    span_id,
+    annotations,
+    tags,
+    include,
+    sa_endpoint,
+    timestamp,
+    duration,
+):
+    # Default kind to None, which represents a local span.
+    kind = None
+    if 'client' in include and 'server' not in include:
+        kind = 'CLIENT'
+    elif 'client' not in include and 'server' in include:
+        kind = 'SERVER'
+
+    remote_endpoint = None
+    # NOTE: ideally we should raise an exception if sa_endpoint is set and
+    # kind != CLIENT since that's invalid. But it'd also be backward incompatible.
+    if isinstance(sa_endpoint, Endpoint):
+        remote_endpoint = sa_endpoint
+
+    if span_id is None:
+        span_id = generate_random_64bit_string()
+
+    return Span(
+        trace_id=trace_id,
+        name=name,
+        parent_id=parent_id,
+        span_id=span_id,
+        kind=kind,
+        timestamp=timestamp,
+        duration=duration,
+        local_endpoint=None,
+        remote_endpoint=remote_endpoint,
+        annotations=annotations,
+        tags=tags,
+    )
 
 
 class Encoding(Enum):
